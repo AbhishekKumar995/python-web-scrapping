@@ -1,0 +1,148 @@
+*Read the source excel apply logic and store the data in final excel*
+
+import pandas as pd
+
+def main():
+    try:
+        excel_file = "D:\\AI Hulk using python\\Insurance-Master-Metadata.xlsx"
+        
+        xls = pd.ExcelFile(excel_file)
+        original_sheet_names = xls.sheet_names.copy()  # Store original sheet names
+        
+        # Read data from the first sheet
+        first_sheet_name = original_sheet_names[0]
+        first_sheet_df = pd.read_excel(xls, first_sheet_name)
+        
+        # Create a new DataFrame to store data for Sheet 1
+        sheet1_data = first_sheet_df.copy()
+        
+        # Create a new DataFrame to store data for Sheet 2
+        sheet2_data = pd.DataFrame()
+        landing_id_offset = 0  # Initialize the landing ID offset
+        
+        # Iterate over the rest of the sheets
+        for sheet_name in original_sheet_names[1:]:
+            try:
+                df = pd.read_excel(xls, sheet_name)
+                
+                if df.empty:
+                    print(f"Sheet '{sheet_name}' is empty.")
+                    continue  # Skip empty sheet
+                
+                if "Landing_ID" not in df.columns:
+                    print(f"Error: Sheet '{sheet_name}' is missing 'Landing_ID' column.")
+                    continue  # Skip sheet without 'Landing_ID'
+                
+                # Check if any column has blank values (including 'Landing_ID')
+                if df.isna().any().any():
+                    print(f"Sheet '{sheet_name}' has blank values in one or more columns. Skipping...")
+                    continue  # Skip sheet with blank values
+                
+                # Process the DataFrame
+                print(f"Sheet: {sheet_name}")
+                print(f"Columns: {df.columns.tolist()}")
+                print("=" * 30)
+                
+                df["Landing_ID"] += landing_id_offset
+                landing_id_offset = df["Landing_ID"].max() + 1
+                sheet2_data = pd.concat([sheet2_data, df], ignore_index=True)
+                
+            except Exception as e:
+                print(f"Error processing sheet '{sheet_name}': {e}")
+        
+        # Handle new and renamed sheets
+        for sheet_name in original_sheet_names:
+            if sheet_name not in xls.sheet_names:
+                print(f"Sheet '{sheet_name}' has been deleted.")
+                # Add your code here to handle sheet deletion or updates
+            elif sheet_name != xls.sheet_names[original_sheet_names.index(sheet_name)]:
+                print(f"Sheet '{sheet_name}' has been renamed to '{xls.sheet_names[original_sheet_names.index(sheet_name)]}'.")
+                # Add your code here to handle renamed sheet logic
+        
+        # Save the data for Sheet 1 and Sheet 2 to an Excel file
+        output_excel_file = "combined_data.xlsx"
+        with pd.ExcelWriter(output_excel_file) as writer:
+            sheet1_data.to_excel(writer, sheet_name='Sheet1', index=False)
+            sheet2_data.to_excel(writer, sheet_name='Sheet2', index=False)
+        
+        print("Combined data saved to 'combined_data.xlsx'")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+    
+if __name__ == "__main__":
+    main()
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------* read the data from final excel and write it on the table *
+import pandas as pd
+import psycopg2
+
+def create_or_truncate_table(cursor, schema_name, table_name, column_names):
+    # Create a new table or truncate existing table
+    create_table_query = f"""
+        CREATE TABLE IF NOT EXISTS {schema_name}.{table_name} (
+            {', '.join([f'{col} VARCHAR' for col in column_names])}
+        )
+    """
+    cursor.execute(create_table_query)
+    truncate_query = f"TRUNCATE TABLE {schema_name}.{table_name}"
+    cursor.execute(truncate_query)
+
+def main():
+    try:
+        excel_file = "D:\\AI Hulk using python\\combined_data.xlsx"
+
+        # Define your PostgreSQL connection details
+        db_params = {
+            "host": "localhost",
+            "port" : 5432,
+            "database": "DQ",
+            "user": "postgres",
+            "password": "abhi@1995"
+        }
+
+        xls = pd.ExcelFile(excel_file)
+
+        # Establish a connection to the PostgreSQL database
+        conn = psycopg2.connect(**db_params)
+        cursor = conn.cursor()
+
+        # Read data from the Excel file
+        sheet1_data = pd.read_excel(xls, sheet_name='Sheet1')
+        sheet2_data = pd.read_excel(xls, sheet_name='Sheet2')
+
+        # Define column names for the tables
+        sheet1_columns = sheet1_data.columns.tolist()
+        sheet2_columns = sheet2_data.columns.tolist()
+
+        schema_name = 'itg_dq'  # Change this to your desired schema name
+
+        # Create or truncate the tables in the specified schema
+        create_or_truncate_table(cursor, schema_name, 'Insurance_master_field', sheet1_columns)
+        create_or_truncate_table(cursor, schema_name, 'Probable_column_used', sheet2_columns)
+
+        # Insert data into the tables
+        for _, row in sheet1_data.iterrows():
+            insert_query = f"""
+                INSERT INTO {schema_name}.Insurance_master_field ({', '.join(sheet1_columns)})
+                VALUES ({', '.join(['%s'] * len(sheet1_columns))})
+            """
+            values = tuple(row[col] for col in sheet1_columns)
+            cursor.execute(insert_query, values)
+
+        for _, row in sheet2_data.iterrows():
+            insert_query = f"""
+                INSERT INTO {schema_name}.Probable_column_used ({', '.join(sheet2_columns)})
+                VALUES ({', '.join(['%s'] * len(sheet2_columns))})
+            """
+            values = tuple(row[col] for col in sheet2_columns)
+            cursor.execute(insert_query, values)
+
+        conn.commit()  # Commit changes to the database
+        cursor.close()
+        conn.close()
+
+        print("Data loaded into PostgreSQL tables.")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+if __name__ == "__main__":
+    main()

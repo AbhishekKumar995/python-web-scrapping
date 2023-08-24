@@ -1,0 +1,122 @@
+import psycopg2
+import pandas as pd
+import os
+
+# Delete previous database_schema_info.xlsx file if it exists
+if os.path.exists("database_schema_info.xlsx"):
+    os.remove("database_schema_info.xlsx")
+
+# Database connection parameters for each database
+db_params = [
+    # {
+    #     "dbname": "HR-Datamart",
+    #     "user": "postgres",
+    #     "password": "abhi@1995",
+    #     "host": "localhost",
+    #     "port": "5432"
+    # },
+    {
+        "dbname": "my_database",
+        "user": "postgres",
+        "password": "abhi@1995",
+        "host": "localhost",
+        "port": "5432"
+    }
+    # Add more databases here if needed
+]
+
+all_data = []  # Store all the data in a list of dictionaries
+
+try:
+    for params in db_params:
+        # Connect to the PostgreSQL server
+        connection = psycopg2.connect(**params)
+        cursor = connection.cursor()
+
+        # Create the table if it doesn't exist
+        create_table_query = """
+            CREATE TABLE IF NOT EXISTS hrdmrt_ldg.schema_info (
+                database_name TEXT,
+                schema_name TEXT,
+                table_name TEXT,
+                column_name TEXT,
+                data_type TEXT
+            );
+        """
+        cursor.execute(create_table_query)
+        connection.commit()
+
+        # Get the database name
+        cursor.execute("SELECT current_database();")
+        database_name = cursor.fetchone()[0]
+
+        # Get the number of schemas and their names (excluding system schemas)
+        cursor.execute("""
+            SELECT COUNT(schema_name)
+            FROM information_schema.schemata
+            WHERE schema_name NOT LIKE 'pg_%' AND schema_name NOT IN ('information_schema', 'pg_toast', 'pg_temp_1','pg_catalog');
+        """)
+        schema_count = cursor.fetchone()[0]
+
+        cursor.execute("""
+            SELECT schema_name
+            FROM information_schema.schemata
+            WHERE schema_name NOT LIKE 'pg_%' AND schema_name NOT IN ('information_schema', 'pg_toast', 'pg_temp_1');
+        """)
+        schemas = cursor.fetchall()
+
+        for schema in schemas:
+            schema_name = schema[0]
+
+            cursor.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = %s;", (schema_name,))
+            tables = cursor.fetchall()
+
+            for table in tables:
+                table_name = table[0]
+
+                cursor.execute("SELECT column_name,data_type FROM information_schema.columns WHERE table_schema = %s AND table_name = %s;", (schema_name, table_name))
+                columns = cursor.fetchall()
+
+                for column in columns:
+                    column_name, data_type = column
+                    row = {
+                        "Database": database_name,
+                        "Schema": schema_name,
+                        "Table": table_name,
+                        "Column": column_name,
+                        "Data Type": str(data_type)
+                    }
+                    all_data.append(row)
+
+        # Insert data into the table
+        for row in all_data:
+            insert_query = """
+                INSERT INTO schema_info (database_name, schema_name, table_name, column_name, data_type)
+                VALUES (%s, %s, %s, %s, %s);
+            """
+            cursor.execute(insert_query, (row["Database"], row["Schema"], row["Table"], row["Column"], row["Data Type"]))
+            connection.commit()
+
+        cursor.close()
+        connection.close()
+
+except psycopg2.Error as e:
+    print(f"Error connecting to PostgreSQL: {e}")
+
+# Convert the list of dictionaries to a DataFrame
+df = pd.DataFrame(all_data)
+
+# Create an Excel writer object
+excel_writer = pd.ExcelWriter("database_schema_info.xlsx", engine="xlsxwriter")
+
+# Write the DataFrame to different sheets based on the schema
+for schema in df["Schema"].unique():
+    df_schema = df[df["Schema"] == schema]
+    df_schema.to_excel(excel_writer, sheet_name=schema, index=False)
+
+# Save the Excel file
+excel_writer._save()
+
+# Get the current working directory and print it
+current_directory = os.getcwd()
+print(f"The current working directory is: {current_directory}")

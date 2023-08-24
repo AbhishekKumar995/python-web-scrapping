@@ -1,0 +1,64 @@
+import xlrd
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import unpad
+
+# Replace with your actual Excel file path and sheet name
+excel_file_path = r"D:\Encryption Decryption data\Encrypted data file.xls.xls"
+sheet_name = "Sheet1"
+
+# Replace with your actual AES key in hexadecimal format
+key_hex = "09c039fd121955f2e31d874524ee794cdda98b098b9325da410ece1db04f0506"
+
+# Convert hexadecimal key to bytes
+secret_key = bytes.fromhex(key_hex)
+
+# Open the Excel workbook using xlrd
+workbook = xlrd.open_workbook(excel_file_path)
+sheet = workbook.sheet_by_name(sheet_name)
+
+# Determine the minimum length for considering a column as encrypted (adjust as needed)
+min_encrypted_length = 32  # Example: minimum length of 32 characters
+
+# Find encrypted columns
+encrypted_columns = []
+for col_index in range(sheet.ncols):
+    is_encrypted = True
+    for row_index in range(1, sheet.nrows):  # Start from the second row
+        cell_value = sheet.cell_value(row_index, col_index)
+        if not isinstance(cell_value, str) or len(cell_value) < min_encrypted_length:
+            is_encrypted = False
+            break
+        # Check if the cell value is a valid hexadecimal string
+        try:
+            bytes.fromhex(cell_value)
+        except ValueError:
+            is_encrypted = False
+            break
+    
+    if is_encrypted:
+        encrypted_columns.append(sheet.cell_value(0, col_index))  # Header of the column
+
+# Print the encrypted column names
+print("Encrypted columns:", encrypted_columns)
+
+# Fetch and decrypt 10 records from each encrypted column
+num_records_to_fetch = 10
+for col_name in encrypted_columns:
+    col_index = sheet.row_values(0).index(col_name)
+    print(f"\nDecrypted records for encrypted column '{col_name}':")
+    records_fetched = 0
+    for row_index in range(1, sheet.nrows):  # Start from the second row
+        cell_value = sheet.cell_value(row_index, col_index)
+        if len(cell_value) >= min_encrypted_length:
+            try:
+                encrypted_data = bytes.fromhex(cell_value)
+                cipher = AES.new(secret_key, AES.MODE_ECB)
+                decrypted_data = cipher.decrypt(encrypted_data)
+                unpadded_data = unpad(decrypted_data, AES.block_size)
+                decrypted_text = unpadded_data.decode('utf-8')
+                print(decrypted_text)
+                records_fetched += 1
+                if records_fetched >= num_records_to_fetch:
+                    break
+            except Exception as e:
+                print(f"Decryption failed: {str(e)}")

@@ -1,0 +1,75 @@
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+import time
+import pandas as pd
+from selenium.common.exceptions import NoSuchElementException
+
+# Create a new Edge browser instance
+driver = webdriver.Edge()
+
+# Open the desired webpage
+driver.get("https://www.ugc.gov.in/")
+
+# Find the "Fake Universities" link by its link text and click it
+fake_universities_link = driver.find_element(By.LINK_TEXT, "Fake Universities")
+fake_universities_link.click()
+
+# Pause for a short time to allow the page to load
+time.sleep(10)  # Adjust this as needed
+
+# Define the range of indices for the loop
+start_index = 1
+end_index = 20  # Start with a smaller range
+
+# Create a dictionary to store state names and their universities
+state_universities = {}
+
+for i in range(start_index, end_index + 1):
+    try:
+        # Locate the state name
+        state_xpath = '//*[@id="ctl00_bps_homeCPH_lblDescription"]/div/h5[{}]/span'.format(i)
+        state_name = driver.find_element(By.XPATH, state_xpath).text
+        
+        # Locate the subsequent text
+        text_xpath = '//*[@id="ctl00_bps_homeCPH_lblDescription"]/div/ol[{}]/li'.format(i)
+        text_elements = driver.find_elements(By.XPATH, text_xpath)
+        university_addresses = [text_element.text for text_element in text_elements]
+        
+        # Add state name and university addresses to the dictionary
+        if state_name in state_universities:
+            state_universities[state_name] += university_addresses
+        else:
+            state_universities[state_name] = university_addresses
+    except NoSuchElementException:
+        break  # Exit the loop if the element is not found
+
+# Create a Pandas DataFrame to store the data
+data = []
+for state, addresses in state_universities.items():
+    for address in addresses:
+        data.append([state, address, len(addresses)])
+
+df = pd.DataFrame(data, columns=['State Name', 'University Address', 'Number of universities'])
+
+# Save the DataFrame to an Excel file
+excel_filename = 'Fake_Universities_List.xlsx'
+df.to_excel(excel_filename, index=False)
+
+print(f"Data saved to {excel_filename}")
+
+# Print the captured data to the console
+for state, addresses in state_universities.items():
+    print("State Name:", state)
+    print("University Addresses:")
+    for address in addresses:
+        print("-", address)
+    print("Number of universities:", len(addresses))
+    print("=" * 10)
+
+# Print university names for each state
+for state, addresses in state_universities.items():
+    university_names = [address.split(',')[0] for address in addresses]
+    print(f"University Names in {state}:", ", ".join(university_names))
+
+# Close the browser window
+driver.quit()
